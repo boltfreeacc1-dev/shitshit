@@ -1,0 +1,42 @@
+// On your web server
+app.post('/api/validate-link-code', async (req, res) => {
+    const { code, bot_secret } = req.body;
+
+    // Validate bot secret first
+    if (bot_secret !== process.env.BOT_SECRET) {
+        return res.status(401).json({ valid: false, error: "Unauthorized" });
+    }
+
+    try {
+        // Check if code exists in your database
+        const linkData = await LinkCode.findOne({ code, expired: false });
+        
+        if (!linkData) {
+            return res.status(404).json({ valid: false, error: "Invalid code" });
+        }
+
+        // Check if code is expired (5 minutes)
+        if (Date.now() - linkData.createdAt > 300000) {
+            await LinkCode.updateOne({ code }, { expired: true });
+            return res.status(404).json({ valid: false, error: "Code expired" });
+        }
+
+        // Get user's chat data
+        const userData = await User.findById(linkData.userId).select('chats settings');
+        
+        // Mark code as used
+        await LinkCode.updateOne({ code }, { expired: true });
+
+        // Return user data
+        return res.json({
+            valid: true,
+            chats: userData.chats,
+            settings: userData.settings,
+            username: userData.username
+        });
+
+    } catch (error) {
+        console.error("Link code validation error:", error);
+        return res.status(500).json({ valid: false, error: "Server error" });
+    }
+});
